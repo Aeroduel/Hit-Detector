@@ -1,0 +1,105 @@
+AeroDuel – ESP32 Firmware
+
+Firmware for the AeroDuel RC planes using an ESP32 Dev Module.
+This project uses PlatformIO + Arduino framework.
+
+📦 1. Requirements
+
+Make sure you have:
+
+Visual Studio Code
+
+PlatformIO extension for VS Code
+
+USB cable for ESP32
+
+ESP32 Dev Module (example: Espressif ESP32 Dev Module)
+
+You do not need to install Arduino IDE or toolchains manually — PlatformIO handles that automatically.
+
+Project Setup
+
+Open VS Code
+
+Install PlatformIO IDE extension (if you haven’t already)
+
+Click PlatformIO Home → New Project
+
+Use the following settings:
+
+Project Name: (anything you want)
+
+Board: Espressif ESP32 Dev Module
+
+Framework: Arduino
+
+Click Create Project
+
+This generates the standard PlatformIO folder structure: /src
+/include
+/lib
+platformio.ini
+
+⚙️ platformio.ini Configuration
+
+Replace your platformio.ini with:
+[env:esp32dev]
+platform = espressif32
+board = esp32dev
+framework = arduino
+monitor_speed = 115200
+
+lib_deps =
+    sandeepmistry/LoRa@^0.8.0
+
+upload_port = COM6
+
+Change COM6 to whatever COM port your ESP32 is using.
+
+Installing Dependencies
+
+PlatformIO installs libs automatically, but run this to force-update them: Installing Dependencies
+
+PlatformIO installs libs automatically, but run this to force-update them: pio pkg update
+
+To rebuild everything clean:
+pio run -t clean
+
+Normal Upload
+
+If your ESP32 uploads normally, just run: pio run -t upload
+
+If your board requires manual boot mode
+
+Some ESP32 Dev Modules require holding buttons during upload.
+
+Buttons
+
+EN (Enable/Reset): Restarts the board
+
+BOOT / IO0: Puts the ESP32 into firmware upload mode
+
+To Upload Manually
+
+Hold BOOT / IO0
+Run: pio run -t upload
+
+Keep holding BOOT until you see:
+connecting.............
+
+Then just let go of button.
+
+Resetting the Board
+
+To reset the board at any time:
+
+Tap the EN button
+
+This restarts the ESP32 without entering upload mode.
+
+Serial Monitor
+
+To open serial monitor at 115200 baud:
+pio device monitor
+
+To exit Press: CTRL+C
