@@ -114,16 +114,7 @@ void setup() {
   }
   Serial.println("LoRa ready.");
 
-  // WiFi
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println();
-  Serial.println("WiFi OK: " + WiFi.localIP().toString());
-
+  le
   // Web routes
   server.on("/send-hit", handleSendHit);
   server.on("/get-lives", handleGetLives);
