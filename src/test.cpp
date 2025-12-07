@@ -5,6 +5,10 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include <ArduinoJson.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 #include "hiddengems.h"
 
 // -------------------------
@@ -63,6 +67,28 @@ Plane planes[MAX_PLANES];
 int planeCount = 0;
 
 // -------------------------
+// BLE UUIDs
+// -------------------------
+#define BLE_SERVICE_UUID        "12345678-1234-1234-1234-1234567890ab"
+#define BLE_CHARACTERISTIC_UUID "abcd1234-ab12-cd34-ef56-1234567890ab"
+
+// BLE objects
+BLEServer* pServer = nullptr;
+BLECharacteristic* pCharacteristic = nullptr;
+bool deviceConnected = false;
+
+// -------------------------
+// Forward declarations
+// -------------------------
+void handleRegister(AsyncWebServerRequest *request);
+void handleHit(AsyncWebServerRequest *request);
+void handleFire(AsyncWebServerRequest *request);
+void handleMatch(AsyncWebServerRequest *request);
+void handlePlanes(AsyncWebServerRequest *request);
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+               void *arg, uint8_t *data, size_t len);
+
+// -------------------------
 // Helper functions
 // -------------------------
 Plane* findPlaneById(const String &id) {
@@ -88,7 +114,14 @@ void broadcastPlaneUpdate() {
   }
   String output;
   serializeJson(doc, output);
+
   ws.textAll(output);
+
+  // Send via BLE if connected
+  if (deviceConnected) {
+    pCharacteristic->setValue(output.c_str());
+    pCharacteristic->notify();
+  }
 }
 
 // ----------------------------------------------
@@ -106,7 +139,6 @@ void sendPacket(const String &type, const String &to) {
 
   Serial.println("Sent " + type + " to " + to);
 
-  // Flash LED / buzz
   digitalWrite(LED_PIN, HIGH);
   tone(BUZ_PIN, type == "HIT" ? 2000 : 1600, 100);
   delay(120);
@@ -114,9 +146,47 @@ void sendPacket(const String &type, const String &to) {
 }
 
 // -------------------------
-// API Handlers
+// BLE Server Callbacks
 // -------------------------
+class MyServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+    Serial.println("BLE client connected!");
+  }
 
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+    Serial.println("BLE client disconnected!");
+    pServer->getAdvertising()->start();
+  }
+};
+
+// -------------------------
+// BLE Setup
+// -------------------------
+void setupBLE() {
+  BLEDevice::init("Aeroduel_" BOARD_ID);
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  BLEService *pService = pServer->createService(BLE_SERVICE_UUID);
+  pCharacteristic = pService->createCharacteristic(
+      BLE_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_READ |
+      BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_NOTIFY
+  );
+
+  pCharacteristic->addDescriptor(new BLE2902());
+
+  pService->start();
+  pServer->getAdvertising()->start();
+  Serial.println("BLE service started, waiting for clients...");
+}
+
+// -------------------------
+// Web server handlers
+// -------------------------
 void handleRegister(AsyncWebServerRequest *request) {
   if (!request->hasParam("planeId", true) || !request->hasParam("userId", true)) {
     request->send(400, "application/json", "{\"error\":\"Missing planeId or userId\"}");
@@ -211,7 +281,7 @@ void handlePlanes(AsyncWebServerRequest *request) {
 }
 
 // -------------------------
-// WebSocket Event
+// WebSocket callback
 // -------------------------
 void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
                void *arg, uint8_t *data, size_t len) {
@@ -243,6 +313,7 @@ void setup() {
   }
   Serial.println("LoRa ready.");
 
+  // Wi-Fi
   WiFi.begin(ssid, password);
   Serial.print("Connecting");
   while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
@@ -258,9 +329,11 @@ void setup() {
   // WebSocket
   ws.onEvent(onWsEvent);
   server.addHandler(&ws);
-
   server.begin();
   Serial.println("Web server + WebSocket running.");
+
+  // BLE
+  setupBLE();
 }
 
 // -------------------------
@@ -295,7 +368,6 @@ void loop() {
   if (packetSize) {
     String incoming = "";
     while (LoRa.available()) incoming += (char)LoRa.read();
-
     Serial.println("Received: " + incoming);
 
     if (incoming.indexOf("\"type\":\"HIT\"") >= 0 &&

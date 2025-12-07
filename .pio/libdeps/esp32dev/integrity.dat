@@ -1,4 +1,4 @@
+me-no-dev/ESPAsyncWebServer@1.2.3
 bblanchon/ArduinoJson@^7.4.2
-me-no-dev/ESPAsyncWebServer@^1.2.4
-me-no-dev/AsyncTCP@^1.1.1
 sandeepmistry/LoRa@^0.8.0
+me-no-dev/AsyncTCP@1.1.1
