@@ -1,19 +1,8 @@
 #include <Arduino.h>
-#include <SPI.h>
-#include <LoRa.h>
 #include <WiFi.h>
-#include <WebServer.h>
-#include "hiddengems.h" // your WiFi credentials
-
-// -------------------------
-// LoRa Pins
-// -------------------------
-#define LORA_SCK   18
-#define LORA_MISO  19
-#define LORA_MOSI  23
-#define LORA_SS     5
-#define LORA_RST   26
-#define LORA_DIO0  14
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include <ArduinoJson.h>
 
 // -------------------------
 // Indicators
@@ -24,70 +13,162 @@
 // -------------------------
 // Board Identifier
 // -------------------------
-#define BOARD_ID "BOARD1"   // change per board
+#define BOARD_ID "BOARD1"
 
 // -------------------------
-// LoRa Frequency
+// Web server + WebSocket
 // -------------------------
-const long RF_FREQ = 433E6;
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
 // -------------------------
-// Web server
+// Camera UART
 // -------------------------
-WebServer server(80);
-
-// -------------------------
-// Lives counter
-// -------------------------
-int lives = 5;
-
-// -------------------------
-// CAMERA UART (H7 → ESP32)
-// -------------------------
-HardwareSerial CamSerial(2); // UART2 (GPIO16 RX, GPIO17 TX)
+HardwareSerial CamSerial(2); // UART2
 #define CAM_RX 16
 #define CAM_TX 17
 #define CAM_BAUD 115200
 
-// ----------------------------------------------
-// LoRa Send Function
-// ----------------------------------------------
-void sendPacket(const String &type, const String &to) {
-  String msg = String("{\"type\":\"") + type +
-               "\",\"from\":\"" + BOARD_ID +
-               "\",\"to\":\"" + to +
-               "\",\"ts\":" + String(millis()) + "}";
+// -------------------------
+// Plane struct
+// -------------------------
+struct Plane {
+  String planeId;
+  String userId;
+  String authToken;
+  bool isOnline;
+  int lives;
+};
 
-  LoRa.beginPacket();
-  LoRa.print(msg);
-  LoRa.endPacket();
+#define MAX_PLANES 5
+Plane planes[MAX_PLANES];
+int planeCount = 0;
 
-  Serial.println("Sent " + type + " to " + to);
+// -------------------------
+// Helper functions
+// -------------------------
+Plane* findPlaneById(const String &id) {
+  for (int i = 0; i < planeCount; i++) {
+    if (planes[i].planeId == id) return &planes[i];
+  }
+  return nullptr;
+}
 
-  // Flash LED / buzz
-  digitalWrite(LED_PIN, HIGH);
-  tone(BUZ_PIN, type == "HIT" ? 2000 : 1600, 100);
-  delay(120);
-  digitalWrite(LED_PIN, LOW);
+Plane* findPlaneByToken(const String &token) {
+  for (int i = 0; i < planeCount; i++) {
+    if (planes[i].authToken == token) return &planes[i];
+  }
+  return nullptr;
+}
+
+void broadcastPlaneUpdate() {
+  DynamicJsonDocument doc(512);
+  for (int i = 0; i < planeCount; i++) {
+    doc["planes"][i]["planeId"] = planes[i].planeId;
+    doc["planes"][i]["isOnline"] = planes[i].isOnline;
+    doc["planes"][i]["lives"] = planes[i].lives;
+  }
+  String output;
+  serializeJson(doc, output);
+  ws.textAll(output);
 }
 
 // -------------------------
-// Web Handlers
+// TEMPORARY — DISABLED LORA
 // -------------------------
-void handleSendHit() {
-  if (!server.hasArg("target")) {
-    server.send(400, "text/plain", "Missing target");
+void sendPacket(const String &type, const String &to) {
+  Serial.printf("[MockLoRa] SEND %s TO %s\n", type.c_str(), to.c_str());
+}
+
+// -------------------------
+// Web server handlers
+// -------------------------
+void handleRegister(AsyncWebServerRequest *request) {
+  if (!request->hasParam("planeId", true) || !request->hasParam("userId", true)) {
+    request->send(400, "application/json", "{\"error\":\"Missing planeId or userId\"}");
     return;
   }
-  String target = server.arg("target");
-  sendPacket("HIT", target);
-  server.send(200, "application/json", "{\"status\":\"HIT sent\",\"to\":\"" + target + "\"}");
+
+  String planeId = request->getParam("planeId", true)->value();
+  String userId = request->getParam("userId", true)->value();
+
+  Plane* existing = findPlaneById(planeId);
+  if (existing != nullptr) {
+    existing->isOnline = true;
+    request->send(200, "application/json", "{\"authToken\":\"" + existing->authToken + "\"}");
+    broadcastPlaneUpdate();
+    return;
+  }
+
+  if (planeCount >= MAX_PLANES) {
+    request->send(400, "application/json", "{\"error\":\"Max planes reached\"}");
+    return;
+  }
+
+  String token = planeId + "-" + String(random(1000, 9999));
+  planes[planeCount++] = {planeId, userId, token, true, 5};
+
+  request->send(200, "application/json", "{\"authToken\":\"" + token + "\"}");
+  Serial.println("Registered plane: " + planeId + " token: " + token);
+  broadcastPlaneUpdate();
 }
 
-void handleGetLives() {
-  String json = String("{\"board\":\"") + BOARD_ID +
-                "\",\"lives\":" + String(lives) + "}";
-  server.send(200, "application/json", json);
+void handleHit(AsyncWebServerRequest *request) {
+  if (!request->hasParam("authToken", true) || !request->hasParam("targetId", true)) {
+    request->send(400, "application/json", "{\"error\":\"Missing authToken or targetId\"}");
+    return;
+  }
+
+  String token = request->getParam("authToken", true)->value();
+  String targetId = request->getParam("targetId", true)->value();
+
+  Plane* shooter = findPlaneByToken(token);
+  if (!shooter) {
+    request->send(401, "application/json", "{\"error\":\"Invalid authToken\"}");
+    return;
+  }
+
+  sendPacket("HIT", targetId);
+  request->send(200, "application/json", "{\"status\":\"Hit sent\",\"to\":\"" + targetId + "\"}");
+}
+
+void handleMatch(AsyncWebServerRequest *request) {
+  DynamicJsonDocument doc(512);
+  doc["board"] = BOARD_ID;
+
+  for (int i = 0; i < planeCount; i++) {
+    doc["planes"][i]["planeId"] = planes[i].planeId;
+    doc["planes"][i]["lives"] = planes[i].lives;
+    doc["planes"][i]["isOnline"] = planes[i].isOnline;
+  }
+
+  String output;
+  serializeJson(doc, output);
+  request->send(200, "application/json", output);
+}
+
+void handlePlanes(AsyncWebServerRequest *request) {
+  DynamicJsonDocument doc(512);
+  for (int i = 0; i < planeCount; i++) {
+    doc[i]["planeId"] = planes[i].planeId;
+    doc[i]["isOnline"] = planes[i].isOnline;
+    doc[i]["lives"] = planes[i].lives;
+  }
+  String output;
+  serializeJson(doc, output);
+  request->send(200, "application/json", output);
+}
+
+// -------------------------
+// Websocket Events
+// -------------------------
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client,
+               AwsEventType type, void *arg, uint8_t *data, size_t len) {
+
+  if (type == WS_EVT_CONNECT) {
+    Serial.printf("WebSocket client connected: %u\n", client->id());
+    broadcastPlaneUpdate();
+  }
 }
 
 // -------------------------
@@ -98,81 +179,61 @@ void setup() {
   pinMode(BUZ_PIN, OUTPUT);
 
   Serial.begin(115200);
-  while (!Serial) {}
+  delay(300);
 
-  // Init CAMERA UART
   CamSerial.begin(CAM_BAUD, SERIAL_8N1, CAM_RX, CAM_TX);
-  Serial.println("Camera UART ready on GPIO16/17.");
+  Serial.println("Camera UART ready.");
 
-  // Initialize LoRa
-  SPI.begin(LORA_SCK, LORA_MISO, LORA_MOSI, LORA_SS);
-  LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+  // -------------------------
+  // Soft AP Wi-Fi setup
+  // -------------------------
+  const char* apSSID = "Aeroduel_" BOARD_ID;
+  const char* apPassword = "12345678";
 
-  if (!LoRa.begin(RF_FREQ)) {
-    Serial.println("LoRa init failed.");
-    while (1) delay(1000);
-  }
-  Serial.println("LoRa ready.");
+  WiFi.softAP(apSSID, apPassword);
+  Serial.print("Soft AP IP: ");
+  Serial.println(WiFi.softAPIP());
 
-  le
+  // -------------------------
   // Web routes
-  server.on("/send-hit", handleSendHit);
-  server.on("/get-lives", handleGetLives);
+  // -------------------------
+  server.on("/api/register", HTTP_POST, handleRegister);
+  server.on("/api/hit", HTTP_POST, handleHit);
+  server.on("/api/match", HTTP_GET, handleMatch);
+  server.on("/api/planes", HTTP_GET, handlePlanes);
+
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+
   server.begin();
-  Serial.println("Web server running.");
+  Serial.println("Web server + WebSocket running.");
 }
 
 // -------------------------
 // Loop
 // -------------------------
 void loop() {
-  server.handleClient();
+  ws.cleanupClients();
 
-  // ------------------------------------
-  // 1. HANDLE CAMERA "HIT"
-  // ------------------------------------
+  // Camera HITs
   while (CamSerial.available()) {
     String msg = CamSerial.readStringUntil('\n');
     msg.trim();
     if (msg == "HIT") {
       Serial.println("Camera HIT detected!");
 
-      // Visual feedback
       digitalWrite(LED_PIN, HIGH);
       tone(BUZ_PIN, 2000, 100);
       delay(120);
       digitalWrite(LED_PIN, LOW);
 
-      // Send LoRa packet to opponent
-      String target = "BOARD2"; // update per your board setup
-      sendPacket("HIT", target);
-    } else {
-      Serial.println("Camera sent: " + msg);
-    }
-  }
-
-  // ------------------------------------
-  // 2. HANDLE LORA PACKETS
-  // ------------------------------------
-  int packetSize = LoRa.parsePacket();
-  if (packetSize) {
-    String incoming = "";
-    while (LoRa.available()) incoming += (char)LoRa.read();
-
-    Serial.println("Received: " + incoming);
-
-    if (incoming.indexOf("\"type\":\"HIT\"") >= 0 &&
-        incoming.indexOf("\"to\":\"" BOARD_ID "\"") >= 0) {
-
-      Serial.println("HIT received via LoRa");
-      if (lives > 0) lives--;
-
-      String fromID =
-        incoming.substring(incoming.indexOf("\"from\":\"") + 8,
-        incoming.indexOf("\",\"to\""));
-
-      sendPacket("ACK", fromID);
+      for (int i = 0; i < planeCount; i++) {
+        if (planes[i].planeId != BOARD_ID && planes[i].isOnline) {
+          sendPacket("HIT", planes[i].planeId);
+          break;
+        }
+      }
+      broadcastPlaneUpdate();
     }
   }
 }
-

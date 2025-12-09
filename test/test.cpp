@@ -5,10 +5,6 @@
 #include <ESPAsyncWebServer.h>
 #include <AsyncTCP.h>
 #include <ArduinoJson.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
 #include "hiddengems.h"
 
 // -------------------------
@@ -67,17 +63,6 @@ Plane planes[MAX_PLANES];
 int planeCount = 0;
 
 // -------------------------
-// BLE UUIDs
-// -------------------------
-#define BLE_SERVICE_UUID        "12345678-1234-1234-1234-1234567890ab"
-#define BLE_CHARACTERISTIC_UUID "abcd1234-ab12-cd34-ef56-1234567890ab"
-
-// BLE objects
-BLEServer* pServer = nullptr;
-BLECharacteristic* pCharacteristic = nullptr;
-bool deviceConnected = false;
-
-// -------------------------
 // Forward declarations
 // -------------------------
 void handleRegister(AsyncWebServerRequest *request);
@@ -116,12 +101,6 @@ void broadcastPlaneUpdate() {
   serializeJson(doc, output);
 
   ws.textAll(output);
-
-  // Send via BLE if connected
-  if (deviceConnected) {
-    pCharacteristic->setValue(output.c_str());
-    pCharacteristic->notify();
-  }
 }
 
 // ----------------------------------------------
@@ -143,45 +122,6 @@ void sendPacket(const String &type, const String &to) {
   tone(BUZ_PIN, type == "HIT" ? 2000 : 1600, 100);
   delay(120);
   digitalWrite(LED_PIN, LOW);
-}
-
-// -------------------------
-// BLE Server Callbacks
-// -------------------------
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-    Serial.println("BLE client connected!");
-  }
-
-  void onDisconnect(BLEServer* pServer) {
-    deviceConnected = false;
-    Serial.println("BLE client disconnected!");
-    pServer->getAdvertising()->start();
-  }
-};
-
-// -------------------------
-// BLE Setup
-// -------------------------
-void setupBLE() {
-  BLEDevice::init("Aeroduel_" BOARD_ID);
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-
-  BLEService *pService = pServer->createService(BLE_SERVICE_UUID);
-  pCharacteristic = pService->createCharacteristic(
-      BLE_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_READ |
-      BLECharacteristic::PROPERTY_WRITE |
-      BLECharacteristic::PROPERTY_NOTIFY
-  );
-
-  pCharacteristic->addDescriptor(new BLE2902());
-
-  pService->start();
-  pServer->getAdvertising()->start();
-  Serial.println("BLE service started, waiting for clients...");
 }
 
 // -------------------------
@@ -313,13 +253,18 @@ void setup() {
   }
   Serial.println("LoRa ready.");
 
-  // Wi-Fi
-  WiFi.begin(ssid, password);
-  Serial.print("Connecting");
-  while (WiFi.status() != WL_CONNECTED) { delay(500); Serial.print("."); }
-  Serial.println("\nWiFi OK: " + WiFi.localIP().toString());
+  // -------------------------
+  // Soft AP Wi-Fi setup
+  // -------------------------
+  const char* apSSID = "Aeroduel_" BOARD_ID;
+  const char* apPassword = "12345678"; // optional
+  WiFi.softAP(apSSID, apPassword);
+  Serial.print("Soft AP IP: ");
+  Serial.println(WiFi.softAPIP());
 
+  // -------------------------
   // Web routes
+  // -------------------------
   server.on("/api/register", HTTP_POST, handleRegister);
   server.on("/api/hit", HTTP_POST, handleHit);
   server.on("/api/fire", HTTP_POST, handleFire);
@@ -331,9 +276,6 @@ void setup() {
   server.addHandler(&ws);
   server.begin();
   Serial.println("Web server + WebSocket running.");
-
-  // BLE
-  setupBLE();
 }
 
 // -------------------------
