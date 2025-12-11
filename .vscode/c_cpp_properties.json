@@ -10,6 +10,7 @@
             "includePath": [
                 "C:/Users/Malik/Hit-Detector/include",
                 "C:/Users/Malik/Hit-Detector/src",
+                "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/ESPmDNS/src",
                 "C:/Users/Malik/Hit-Detector/.pio/libdeps/heltec_lora_v4/LoRa/src",
                 "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src",
                 "C:/Users/Malik/Hit-Detector/.pio/libdeps/heltec_lora_v4/ArduinoJson/src",
@@ -224,7 +225,6 @@
                 "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/DNSServer/src",
                 "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/EEPROM/src",
                 "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/ESP32/src",
-                "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/ESPmDNS/src",
                 "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/Ethernet/src",
                 "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/FFat/src",
                 "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src",
@@ -254,6 +254,7 @@
                 "path": [
                     "C:/Users/Malik/Hit-Detector/include",
                     "C:/Users/Malik/Hit-Detector/src",
+                    "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/ESPmDNS/src",
                     "C:/Users/Malik/Hit-Detector/.pio/libdeps/heltec_lora_v4/LoRa/src",
                     "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/SPI/src",
                     "C:/Users/Malik/Hit-Detector/.pio/libdeps/heltec_lora_v4/ArduinoJson/src",
@@ -468,7 +469,6 @@
                     "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/DNSServer/src",
                     "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/EEPROM/src",
                     "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/ESP32/src",
-                    "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/ESPmDNS/src",
                     "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/Ethernet/src",
                     "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/FFat/src",
                     "C:/Users/Malik/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src",
